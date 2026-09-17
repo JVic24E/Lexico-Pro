@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">LEXICO PRO</string>
+    <string name="school_name">I.E. \"Fe y Alegría 31\"</string>
+    <string name="school_sub">Nuestra Señora de Guadalupe</string>
+    <string name="nav_home">Inicio</string>
+    <string name="nav_search">Buscar</string>
+    <string name="nav_favorites">Favoritos</string>
+    <string name="nav_settings">Ajustes</string>
+</resources>

@@ -1,0 +1,6 @@
+{
+  "name": "LEXICO PRO",
+  "description": "Aplicación oficial de diccionario multilingüe para la I.E. Fe y Alegría 31 con pronunciación TTS, etimología, favoritos, flashcards y corpus léxico offline.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
