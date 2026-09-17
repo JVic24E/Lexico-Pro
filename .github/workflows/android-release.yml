@@ -1,0 +1,188 @@
+name: Lexico Pro - Android Build & Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    name: Build & Release Lexico Pro
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Restore debug keystore
+        run: |
+          if [ -f "debug.keystore.base64" ]; then
+            echo "Restoring debug.keystore from debug.keystore.base64..."
+            base64 -d debug.keystore.base64 > debug.keystore
+          fi
+
+      - name: Setup optional Release Keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "Release keystore secret detected. Decoding to my-upload-key.jks..."
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > my-upload-key.jks
+            echo "STORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD" >> $GITHUB_ENV
+            echo "KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> $GITHUB_ENV
+            echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/my-upload-key.jks" >> $GITHUB_ENV
+            echo "IS_RELEASE_SIGNED=true" >> $GITHUB_ENV
+          else
+            echo "No release keystore secret configured. Using assembleDebug..."
+            echo "IS_RELEASE_SIGNED=false" >> $GITHUB_ENV
+          fi
+
+      - name: Ensure Gradle Wrapper executable
+        run: |
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+          else
+            gradle wrapper
+            chmod +x ./gradlew
+          fi
+
+      - name: Run Unit & Robolectric Tests
+        run: ./gradlew testDebugUnitTest --continue
+
+      - name: Compile Android APK
+        run: |
+          if [ "$IS_RELEASE_SIGNED" = "true" ]; then
+            echo "Compiling signed release APK..."
+            ./gradlew assembleRelease
+          else
+            echo "Compiling debug APK..."
+            ./gradlew assembleDebug
+          fi
+
+      - name: Determine Version & Locate APK
+        id: prep_apk
+        run: |
+          # 1. Extract versionName from app/build.gradle.kts
+          BASE_VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts || echo "1.0.0")
+          BUILD_NUMBER="${{ github.run_number }}"
+          
+          # Count components in BASE_VERSION
+          IFS='.' read -r -a PARTS <<< "$BASE_VERSION"
+          if [ ${#PARTS[@]} -eq 2 ]; then
+            VERSION="${BASE_VERSION}.${BUILD_NUMBER}"
+          elif [ ${#PARTS[@]} -eq 3 ]; then
+            VERSION="${PARTS[0]}.${PARTS[1]}.${BUILD_NUMBER}"
+          else
+            VERSION="${BASE_VERSION}.${BUILD_NUMBER}"
+          fi
+          
+          TAG_NAME="v${VERSION}"
+          RELEASE_TITLE="Lexico Pro v${VERSION}"
+          APK_TARGET_NAME="Lexico-Pro-v${VERSION}.apk"
+          
+          echo "Computed Version: $VERSION"
+          echo "Computed Tag: $TAG_NAME"
+          echo "Target APK filename: $APK_TARGET_NAME"
+          
+          # 2. Locate generated APK
+          FOUND_APK=$(find app/build/outputs/apk/ -name "*.apk" | head -n 1)
+          if [ -z "$FOUND_APK" ]; then
+            FOUND_APK=$(find . -name "*.apk" | head -n 1)
+          fi
+          
+          if [ -z "$FOUND_APK" ]; then
+            echo "Error: No APK file generated!"
+            exit 1
+          fi
+          
+          echo "Found generated APK at: $FOUND_APK"
+          cp "$FOUND_APK" "$APK_TARGET_NAME"
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "release_title=$RELEASE_TITLE" >> $GITHUB_OUTPUT
+          echo "apk_path=$APK_TARGET_NAME" >> $GITHUB_OUTPUT
+          echo "apk_filename=$APK_TARGET_NAME" >> $GITHUB_OUTPUT
+          echo "build_date=$(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_OUTPUT
+          echo "commit_hash=${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "branch_name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+
+      - name: Upload APK as Workflow Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.prep_apk.outputs.apk_filename }}
+          path: ${{ steps.prep_apk.outputs.apk_path }}
+          retention-days: 30
+
+      - name: Generate Release Notes
+        id: release_notes
+        run: |
+          BUILD_TYPE_INFO="Compilación de depuración (Debug APK) para pruebas y validación."
+          if [ "$IS_RELEASE_SIGNED" = "true" ]; then
+            BUILD_TYPE_INFO="Compilación de producción firmada con clave de lanzamiento."
+          fi
+
+          cat << 'EOF' > release_body.md
+          ## 📱 Lexico Pro v${{ steps.prep_apk.outputs.version }}
+
+          Nueva versión de **LEXICO PRO** compilada automáticamente mediante GitHub Actions desde Google AI Studio.
+
+          ### 📋 Información de la Compilación
+          - **Versión:** `${{ steps.prep_apk.outputs.version }}`
+          - **Fecha de compilación:** `${{ steps.prep_apk.outputs.build_date }}`
+          - **Rama:** `${{ steps.prep_apk.outputs.branch_name }}`
+          - **Commit:** `${{ steps.prep_apk.outputs.commit_hash }}`
+          - **Tipo de compilación:** $BUILD_TYPE_INFO
+          - **Estado de las pruebas:** ✅ Pruebas unitarias (`testDebugUnitTest`) completadas exitosamente
+
+          ### 🚀 Cambios incluidos en este commit
+          ${{ github.event.head_commit.message || 'Sincronización de actualización desde Google AI Studio.' }}
+
+          ### 📦 Descarga directa
+          - **Archivo:** [`${{ steps.prep_apk.outputs.apk_filename }}`](https://github.com/${{ github.repository }}/releases/download/${{ steps.prep_apk.outputs.tag_name }}/${{ steps.prep_apk.outputs.apk_filename }})
+
+          ---
+
+          ### 📲 Instalación
+          1. Descarga el archivo `${{ steps.prep_apk.outputs.apk_filename }}` en tu dispositivo Android.
+          2. Abre el archivo descargado. Si tu dispositivo lo solicita, habilita la opción **"Instalar aplicaciones de fuentes desconocidas"** para tu navegador o explorador de archivos.
+          3. Sigue las instrucciones en pantalla para completar la instalación y disfruta de **LEXICO PRO**.
+          EOF
+
+          # Substitute variables safely in release_body.md
+          sed -i "s/\$BUILD_TYPE_INFO/$BUILD_TYPE_INFO/g" release_body.md
+
+      - name: Create GitHub Release and Attach APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.prep_apk.outputs.tag_name }}
+          name: ${{ steps.prep_apk.outputs.release_title }}
+          body_path: release_body.md
+          files: ${{ steps.prep_apk.outputs.apk_path }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
