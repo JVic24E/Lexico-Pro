@@ -7,6 +7,18 @@ Lexico Pro es un diccionario multilingüe diseñado para consultar, descubrir y 
 Combina las funciones tradicionales de un diccionario con herramientas modernas de búsqueda, pronunciación, traducción y aprendizaje de vocabulario.
 
 ---
+## Capturas de pantalla
+
+<p align="center">
+  <img src="screenshots/Inicio.png" width="200">
+  <img src="screenshots/Busqueda.png" width="200">
+  <img src="screenshots/Lexico.png" width="200">
+</p>
+
+<p align="center">
+  <img src="screenshots/Favorito.png" width="200">
+  <img src="screenshots/Ajustes.png" width="200">
+</p>
 
 ## Características principales
 
