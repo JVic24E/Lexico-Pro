@@ -14,7 +14,6 @@ Combina las funciones tradicionales de un diccionario con herramientas modernas 
   <img src="screenshots/Busqueda.png" width="200">
   <img src="screenshots/Lexico.png" width="200">
 </p>
-
 <p align="center">
   <img src="screenshots/Favorito.png" width="200">
   <img src="screenshots/Ajustes.png" width="200">
